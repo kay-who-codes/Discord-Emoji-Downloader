@@ -26,6 +26,8 @@ button.alt{background:var(--card);color:var(--text);border:1px solid var(--line)
 .name{font-size:12px;color:var(--mute);word-break:break-all;text-align:center}
 .tag{font-size:10px;background:var(--accent2);color:#fff;border-radius:99px;padding:1px 7px;margin-left:4px}
 .item button{width:100%}
+.item input{width:100%;font-size:13px;padding:6px 8px}
+.fn{font-size:11px;color:var(--accent);word-break:break-all;text-align:center;min-height:14px}
 .msg{color:var(--mute);font-size:13px;margin-top:8px;min-height:18px}
 .err{color:#ff6b6b}
 </style>
@@ -109,8 +111,10 @@ function urlFor(it, forPreview) {
 
 function fileName(it) {
   const p = $('prefix').value.trim();
-  const base = (p ? p + '_' : '') + (it.name || it.id);
-  return `${base}_${$('size').value}.${fmtFor(it)}`;
+  const own = (it.custom || '').trim();
+  const base = (p ? p + '_' : '') + (own || it.name || it.id);
+  const clean = base.replace(/[\\/:*?"<>|]+/g, '_');
+  return own ? `${clean}.${fmtFor(it)}` : `${clean}_${$('size').value}.${fmtFor(it)}`;
 }
 
 function render() {
@@ -121,7 +125,14 @@ function render() {
     d.className = 'item';
     d.innerHTML = `<div class="prev"><img alt=""></div>
       <div class="name">${it.name || it.id}${it.animated ? '<span class="tag">GIF</span>' : ''}</div>
+      <input type="text" class="rn" placeholder="Rename (optional)">
+      <div class="fn"></div>
       <button>Download</button>`;
+    const rn = d.querySelector('.rn'), fn = d.querySelector('.fn');
+    rn.value = it.custom || '';
+    rn.oninput = () => { it.custom = rn.value; fn.textContent = fileName(it); };
+    fn.textContent = fileName(it);
+    it.fnEl = fn;
     const img = d.querySelector('img');
     img.src = urlFor(it, true);
     img.onerror = () => { img.replaceWith(Object.assign(document.createElement('span'), { textContent: 'Not found', className: 'err' })); };
@@ -151,7 +162,9 @@ async function download(i) {
 }
 
 $('go').onclick = () => {
+  const old = Object.fromEntries(items.map(x => [x.id, x.custom]));
   items = parse($('in').value);
+  items.forEach(x => x.custom = old[x.id] || '');
   if (!items.length) { $('msg').innerHTML = '<span class="err">No valid emoji URLs or IDs found.</span>'; $('grid').innerHTML = ''; return; }
   render();
 };
@@ -166,6 +179,7 @@ $('all').onclick = async () => {
 };
 $('clr').onclick = () => { $('in').value = ''; items = []; render(); };
 ['size', 'fmt'].forEach(id => $(id).onchange = () => items.length && render());
+$('prefix').oninput = () => items.forEach(it => it.fnEl && (it.fnEl.textContent = fileName(it)));
 $('in').addEventListener('paste', () => setTimeout(() => $('go').click(), 0));
 </script>
 </body>
