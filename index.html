@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discord Emoji Downloader</title>
+<style>
+:root{--bg:#0f0f14;--card:#191922;--line:#2a2a38;--text:#eee;--mute:#9a9aae;--accent:#ff8a3d;--accent2:#ff4fa3}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,sans-serif;padding:24px}
+main{max-width:900px;margin:0 auto}
+h1{margin:0 0 4px;font-size:1.8rem;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+p.sub{color:var(--mute);margin:0 0 20px}
+textarea{width:100%;min-height:110px;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:12px;font:13px ui-monospace,monospace;resize:vertical}
+textarea:focus,select:focus,input:focus{outline:2px solid var(--accent);border-color:transparent}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:14px 0}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--mute);gap:4px}
+select,input[type=text]{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px}
+button{background:var(--accent);color:#1a1008;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;font-size:14px}
+button:hover{filter:brightness(1.1)}
+button.alt{background:var(--card);color:var(--text);border:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:10px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.prev{width:100%;height:120px;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(#22222d 0 25%,#1b1b24 0 50%) 0 0/16px 16px;border-radius:8px}
+.prev img{max-width:100px;max-height:100px;image-rendering:auto}
+.name{font-size:12px;color:var(--mute);word-break:break-all;text-align:center}
+.tag{font-size:10px;background:var(--accent2);color:#fff;border-radius:99px;padding:1px 7px;margin-left:4px}
+.item button{width:100%}
+.msg{color:var(--mute);font-size:13px;margin-top:8px;min-height:18px}
+.err{color:#ff6b6b}
+</style>
+</head>
+<body>
+<main>
+<h1>Discord Emoji Downloader</h1>
+<p class="sub">Paste emoji URLs (or raw IDs), one per line. Animated emojis download as GIFs.</p>
+
+<textarea id="in" placeholder="https://cdn.discordapp.com/emojis/617753278805049455.webp?size=32&animated=true&#10;617753278805049455"></textarea>
+
+<div class="row">
+  <label>Size
+    <select id="size">
+      <option>16</option><option>32</option><option>48</option><option>64</option>
+      <option>96</option><option selected>128</option><option>256</option><option>512</option><option>1024</option><option>4096</option>
+    </select>
+  </label>
+  <label>Format
+    <select id="fmt">
+      <option value="auto" selected>Auto (GIF if animated, else PNG)</option>
+      <option value="png">PNG (static)</option>
+      <option value="webp">WebP</option>
+      <option value="gif">GIF (animated only)</option>
+    </select>
+  </label>
+  <label>Filename prefix
+    <input type="text" id="prefix" placeholder="optional">
+  </label>
+  <button id="go">Load</button>
+  <button id="all" class="alt">Download all</button>
+  <button id="clr" class="alt">Clear</button>
+</div>
+<div class="msg" id="msg"></div>
+<div class="grid" id="grid"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let items = [];
+
+function parse(text) {
+  const out = [], seen = new Set();
+  for (const raw of text.split(/[\s,]+/)) {
+    if (!raw) continue;
+    let id, animated = false, name = '';
+    const m = raw.match(/emojis\/(\d{15,22})(?:\.(\w+))?/);
+    if (m) {
+      id = m[1];
+      try {
+        const u = new URL(raw);
+        animated = u.searchParams.get('animated') === 'true';
+        name = u.searchParams.get('name') || '';
+      } catch (e) {}
+      if (m[2] === 'gif') animated = true;
+    } else if (/^\d{15,22}$/.test(raw)) {
+      id = raw;
+    } else continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, animated, name });
+  }
+  return out;
+}
+
+function fmtFor(it) {
+  const f = $('fmt').value;
+  if (f === 'auto') return it.animated ? 'gif' : 'png';
+  if (f === 'gif' && !it.animated) return 'png';
+  return f;
+}
+
+function urlFor(it, forPreview) {
+  const ext = fmtFor(it);
+  const size = forPreview ? 128 : $('size').value;
+  let u = `https://cdn.discordapp.com/emojis/${it.id}.${ext}?size=${size}`;
+  if (it.animated && ext === 'webp') u += '&animated=true';
+  if (ext === 'png' || ext === 'webp') u += '&quality=lossless';
+  return u;
+}
+
+function fileName(it) {
+  const p = $('prefix').value.trim();
+  const base = (p ? p + '_' : '') + (it.name || it.id);
+  return `${base}_${$('size').value}.${fmtFor(it)}`;
+}
+
+function render() {
+  const g = $('grid');
+  g.innerHTML = '';
+  items.forEach((it, i) => {
+    const d = document.createElement('div');
+    d.className = 'item';
+    d.innerHTML = `<div class="prev"><img alt=""></div>
+      <div class="name">${it.name || it.id}${it.animated ? '<span class="tag">GIF</span>' : ''}</div>
+      <button>Download</button>`;
+    const img = d.querySelector('img');
+    img.src = urlFor(it, true);
+    img.onerror = () => { img.replaceWith(Object.assign(document.createElement('span'), { textContent: 'Not found', className: 'err' })); };
+    d.querySelector('button').onclick = () => download(i);
+    g.appendChild(d);
+  });
+  $('msg').textContent = items.length ? `${items.length} emoji${items.length > 1 ? 's' : ''} loaded.` : '';
+}
+
+async function download(i) {
+  const it = items[i], url = urlFor(it, false);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName(it);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    return true;
+  } catch (e) {
+    $('msg').innerHTML = `<span class="err">Couldn't fetch ${it.id} (${e.message}). Opened in a new tab instead - right-click to save.</span>`;
+    window.open(url, '_blank');
+    return false;
+  }
+}
+
+$('go').onclick = () => {
+  items = parse($('in').value);
+  if (!items.length) { $('msg').innerHTML = '<span class="err">No valid emoji URLs or IDs found.</span>'; $('grid').innerHTML = ''; return; }
+  render();
+};
+$('all').onclick = async () => {
+  if (!items.length) $('go').click();
+  for (let i = 0; i < items.length; i++) {
+    $('msg').textContent = `Downloading ${i + 1}/${items.length}...`;
+    await download(i);
+    await new Promise(r => setTimeout(r, 300));
+  }
+  $('msg').textContent = 'Done.';
+};
+$('clr').onclick = () => { $('in').value = ''; items = []; render(); };
+['size', 'fmt'].forEach(id => $(id).onchange = () => items.length && render());
+$('in').addEventListener('paste', () => setTimeout(() => $('go').click(), 0));
+</script>
+</body>
+</html>
